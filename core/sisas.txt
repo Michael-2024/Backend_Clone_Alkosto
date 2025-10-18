@@ -1,0 +1,4 @@
+Email: admin@superuser.com
+Nombre: Admin
+Apellido: Superuser
+Password: Admin1004
