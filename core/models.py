@@ -185,3 +185,40 @@ class CarritoItem(models.Model):
         if not self.precio_unitario:
             self.precio_unitario = self.id_producto.precio
         super().save(*args, **kwargs)
+
+    #Favoritos y reseñas
+
+# FAVORITOS Y RESEÑAS
+class Favorito(models.Model):
+    id_favorito = models.AutoField(primary_key=True)
+    id_usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, db_column='id_usuario')
+    id_producto = models.ForeignKey(Producto, on_delete=models.CASCADE, db_column='id_producto')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'favoritos'
+        constraints = [
+            models.UniqueConstraint(fields=['id_usuario', 'id_producto'], name='unique_usuario_producto_favorito')
+        ]
+    
+    def __str__(self):
+        return f"Favorito: {self.id_usuario.email} - {self.id_producto.nombre}"
+
+class Resena(models.Model):
+    id_resena = models.AutoField(primary_key=True)
+    id_usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, db_column='id_usuario')
+    id_producto = models.ForeignKey(Producto, on_delete=models.CASCADE, db_column='id_producto')
+    calificacion = models.IntegerField(choices=[(1, '1'), (2, '2'), (3, '3'), (4, '4'), (5, '5')])
+    comentario = models.TextField(null=True, blank=True)
+    aprobada = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'resenas'
+        constraints = [
+            models.UniqueConstraint(fields=['id_usuario', 'id_producto'], name='unique_usuario_producto_resena')
+        ]
+    
+    def __str__(self):
+        return f"Reseña {self.calificacion}★ - {self.id_usuario.email}"
