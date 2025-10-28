@@ -185,3 +185,20 @@ class CarritoItem(models.Model):
         if not self.precio_unitario:
             self.precio_unitario = self.id_producto.precio
         super().save(*args, **kwargs)
+
+
+# FAVORITOS
+class Favorito(models.Model):
+    id_favorito = models.AutoField(primary_key=True)
+    usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name='favoritos', db_column='id_usuario')
+    producto = models.ForeignKey(Producto, on_delete=models.CASCADE, db_column='id_producto')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'favoritos'
+        constraints = [
+            models.UniqueConstraint(fields=['usuario', 'producto'], name='unique_usuario_producto_favorito')
+        ]
+    
+    def __str__(self):
+        return f"{self.usuario.email} - {self.producto.nombre}"

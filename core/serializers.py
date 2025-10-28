@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Producto, Categoria, Marca, ImagenProducto, Usuario, Carrito, CarritoItem
+from .models import Producto, Categoria, Marca, ImagenProducto, Usuario, Carrito, CarritoItem, Favorito
 from django.contrib.auth import authenticate
 
 class CategoriaSerializer(serializers.ModelSerializer):
@@ -164,3 +164,14 @@ class CambioPasswordSerializer(serializers.Serializer):
         if data['nuevo_password'] != data['confirmar_password']:
             raise serializers.ValidationError("Los nuevos passwords no coinciden")
         return data
+
+
+# FAVORITOS
+class FavoritoSerializer(serializers.ModelSerializer):
+    producto = ProductoSerializer(read_only=True)
+    producto_id = serializers.IntegerField(write_only=True, source='producto.id_producto')
+    
+    class Meta:
+        model = Favorito
+        fields = ['id_favorito', 'producto', 'producto_id', 'created_at']
+        read_only_fields = ['id_favorito', 'created_at']

@@ -5,12 +5,12 @@ from rest_framework.authtoken.models import Token
 from django.contrib.auth import  login, logout, update_session_auth_hash
 from django.db.models import Q
 #from django.db import models
-from .models import Producto, Categoria, Marca, Usuario, Carrito, CarritoItem
+from .models import Producto, Categoria, Marca, Usuario, Carrito, CarritoItem, Favorito
 from .serializers import (ProductoSerializer, CategoriaSerializer, 
                           MarcaSerializer, UsuarioSerializer, LoginSerializer, 
                           CarritoSerializer, CarritoItemSerializer,UsuarioRegistroSerializer, 
                           UsuarioLoginSerializer, UsuarioPerfilSerializer, UsuarioUpdateSerializer, 
-                         CambioPasswordSerializer)
+                         CambioPasswordSerializer, FavoritoSerializer)
 import alkosto_backend.settings as settings
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -246,20 +246,16 @@ def productos_por_categoria(request, categoria_slug):
             productos = productos.order_by('-precio')
         elif orden == 'nombre':
             productos = productos.order_by('nombre')
-        
         serializer = ProductoSerializer(productos, many=True)
-        
+
         return Response({
             'categoria': CategoriaSerializer(categoria).data,
             'productos': serializer.data,
             'total': productos.count()
         })
-        
+
     except Categoria.DoesNotExist:
-        return Response(
-            {'error': 'Categoría no encontrada'}, 
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return Response({'error': 'Categoría no encontrada'}, status=status.HTTP_404_NOT_FOUND)
 
 # 🔥 PRODUCTOS MÁS VENDIDOS
 @api_view(['GET'])
@@ -564,4 +560,59 @@ def migrar_carrito_sesion_a_usuario(request, user):
                     )
             
             # Eliminar carrito de sesión
-            carrito_sesion.delete()    
+            carrito_sesion.delete()
+
+
+# 🔐 VISTAS DE FAVORITOS
+class FavoritoViewSet(viewsets.ModelViewSet):
+    serializer_class = FavoritoSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        return Favorito.objects.filter(usuario=self.request.user).select_related('producto')
+    
+    def create(self, request, *args, **kwargs):
+        producto_id = request.data.get('producto')
+        
+        try:
+            producto = Producto.objects.get(id_producto=producto_id)
+        except Producto.DoesNotExist:
+            return Response(
+                {'error': 'Producto no encontrado'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Verificar si ya existe
+        favorito_existente = Favorito.objects.filter(
+            usuario=request.user,
+            producto=producto
+        ).first()
+        
+        if favorito_existente:
+            return Response(
+                {'message': 'El producto ya está en favoritos'},
+                status=status.HTTP_200_OK
+            )
+        
+        # Crear favorito
+        favorito = Favorito.objects.create(
+            usuario=request.user,
+            producto=producto
+        )
+        
+        serializer = self.get_serializer(favorito)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    def destroy(self, request, *args, **kwargs):
+        try:
+            favorito = self.get_queryset().get(pk=kwargs['pk'])
+            favorito.delete()
+            return Response(
+                {'message': 'Favorito eliminado'},
+                status=status.HTTP_204_NO_CONTENT
+            )
+        except Favorito.DoesNotExist:
+            return Response(
+                {'error': 'Favorito no encontrado'},
+                status=status.HTTP_404_NOT_FOUND
+            )    
