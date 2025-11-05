@@ -7,9 +7,13 @@ router.register('productos', views.ProductoViewSet)
 router.register('categorias', views.CategoriaViewSet)
 router.register('marcas', views.MarcaViewSet)
 router.register('carrito', views.CarritoViewSet, basename='carrito')
+<<<<<<< HEAD
+router.register('favoritos', views.FavoritoViewSet, basename='favoritos')
+=======
 router.register('favoritos', views.FavoritoViewSet, basename='favorito')
 router.register('resenas', views.ResenaViewSet, basename='resena')
 router.register('auth', views.AutenticacionViewSet, basename='auth')  
+>>>>>>> origin/master
 
 urlpatterns = [
     path('', include(router.urls)),
