@@ -1,27 +1,22 @@
-from rest_framework import viewsets, permissions, status
+from rest_framework import viewsets, permissions, status, serializers
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import  login, logout, update_session_auth_hash
 from django.db.models import Q
 #from django.db import models
-from .models import Producto, Categoria, Marca, Usuario, Carrito, CarritoItem
+from .models import Producto, Categoria, Marca, Usuario, Carrito, CarritoItem,Favorito, Resena
 from .serializers import (ProductoSerializer, CategoriaSerializer, 
                           MarcaSerializer, UsuarioSerializer, LoginSerializer, 
                           CarritoSerializer, CarritoItemSerializer,UsuarioRegistroSerializer, 
                           UsuarioLoginSerializer, UsuarioPerfilSerializer, UsuarioUpdateSerializer, 
-                         CambioPasswordSerializer)
-import alkosto_backend.settings as settings
+                         CambioPasswordSerializer, FavoritoSerializer, ResenaSerializer, CrearResenaSerializer, 
+                         ProductoConResenasSerializer)
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 
-
-
-class ProductoViewSet(viewsets.ModelViewSet):
-    queryset = Producto.objects.all()
-    serializer_class = ProductoSerializer
-    permission_classes = [permissions.AllowAny]
+# Nota: la implementación completa de `ProductoViewSet` aparece más abajo
+# con filtros y opciones avanzadas; la definición simplificada inicial se
+# eliminó para evitar duplicidad.
 
 class CategoriaViewSet(viewsets.ModelViewSet):
     queryset = Categoria.objects.filter(activa=True) 
@@ -36,18 +31,231 @@ class MarcaViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.AllowAny]
 
 # API para login
-@api_view(['POST'])
-@permission_classes([permissions.AllowAny])
-def login_view(request):
-    serializer = LoginSerializer(data=request.data)
-    if serializer.is_valid():
-        user = serializer.validated_data['user']
-        token, created = Token.objects.get_or_create(user=user)
+class AutenticacionViewSet(viewsets.ViewSet):
+    """
+    ViewSet para manejar todas las operaciones de autenticación y perfil de usuario
+    """
+    def list(self, request):
+        """
+        Lista todos los endpoints disponibles de autenticación
+        GET /api/auth/
+        """
+        base_url = request.build_absolute_uri('/')[:-1]  # Remover slash final
+        
+        endpoints = {
+            "message": "API de Autenticación - Alkosto Backend",
+            "endpoints_available": {
+                "registro": {
+                    "url": f"{base_url}/api/auth/registro/",
+                    "method": "POST",
+                    "description": "Registro de nuevos usuarios",
+                    "body_required": {
+                        "nombre": "string",
+                        "apellido": "string", 
+                        "email": "string",
+                        "telefono": "string (opcional)",
+                        "password": "string",
+                        "password_confirm": "string"
+                    }
+                },
+                "login": {
+                    "url": f"{base_url}/api/auth/login/",
+                    "method": "POST", 
+                    "description": "Inicio de sesión de usuarios",
+                    "body_required": {
+                        "email": "string",
+                        "password": "string"
+                    }
+                },
+                "logout": {
+                    "url": f"{base_url}/api/auth/logout/",
+                    "method": "POST",
+                    "description": "Cerrar sesión del usuario",
+                    "authentication_required": True
+                },
+                "perfil": {
+                    "url": f"{base_url}/api/auth/perfil/",
+                    "method": "GET",
+                    "description": "Obtener perfil del usuario actual", 
+                    "authentication_required": True
+                },
+                "actualizar_perfil": {
+                    "url": f"{base_url}/api/auth/actualizar_perfil/",
+                    "method": "PUT",
+                    "description": "Actualizar perfil del usuario",
+                    "authentication_required": True,
+                    "body_optional": {
+                        "nombre": "string",
+                        "apellido": "string",
+                        "telefono": "string", 
+                        "fecha_nacimiento": "YYYY-MM-DD",
+                        "genero": "M|F|Otro"
+                    }
+                },
+                "cambiar_password": {
+                    "url": f"{base_url}/api/auth/cambiar_password/",
+                    "method": "POST",
+                    "description": "Cambiar contraseña del usuario",
+                    "authentication_required": True,
+                    "body_required": {
+                        "password_actual": "string",
+                        "nuevo_password": "string", 
+                        "confirmar_password": "string"
+                    }
+                },
+                "verificar_token": {
+                    "url": f"{base_url}/api/auth/verificar_token/",
+                    "method": "GET", 
+                    "description": "Verificar si el token es válido",
+                    "authentication_required": True
+                }
+            }
+        }
+        return Response(endpoints)
+    permission_classes = [permissions.AllowAny]
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
+    def registro(self, request):
+        """Registro de nuevos usuarios - POST /api/auth/registro/"""
+        serializer = UsuarioRegistroSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            
+            # Crear token de autenticación
+            token, created = Token.objects.get_or_create(user=user)
+
+            # Iniciar sesión automáticamente
+            login(request, user)
+            
+            # Migrar carrito de sesión a usuario si existe
+            migrar_carrito_sesion_a_usuario(request, user)
+            
+            return Response({
+                'token': token.key,
+                'user': UsuarioPerfilSerializer(user).data,
+                'message': 'Usuario registrado exitosamente'
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
+    def login(self, request):
+        """Inicio de sesión de usuarios - POST /api/auth/login/"""
+        serializer = UsuarioLoginSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.validated_data['user']
+            
+            # Actualizar último acceso
+            user.fecha_ultimo_acceso = timezone.now()
+            user.save()
+            
+            # Crear o obtener token
+            token, created = Token.objects.get_or_create(user=user)
+            
+            # Iniciar sesión
+            login(request, user)
+            
+            # Migrar carrito de sesión a usuario si existe
+            migrar_carrito_sesion_a_usuario(request, user)
+            
+            return Response({
+                'token': token.key,
+                'user': UsuarioPerfilSerializer(user).data,
+                'message': 'Login exitoso'
+            })
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def logout(self, request):
+        """Cerrar sesión del usuario - POST /api/auth/logout/"""
+        # Eliminar token
+        Token.objects.filter(user=request.user).delete()
+        
+        # Cerrar sesión
+        logout(request)
+        
+        return Response({'message': 'Logout exitoso'})
+
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def perfil(self, request):
+        """Obtener perfil del usuario actual - GET /api/auth/perfil/"""
+        serializer = UsuarioPerfilSerializer(request.user)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['put'], permission_classes=[permissions.IsAuthenticated])
+    def actualizar_perfil(self, request):
+        """Actualizar perfil del usuario - PUT /api/auth/actualizar_perfil/"""
+        serializer = UsuarioUpdateSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'user': UsuarioPerfilSerializer(request.user).data,
+                'message': 'Perfil actualizado exitosamente'
+            })
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def cambiar_password(self, request):
+        """Cambiar contraseña del usuario - POST /api/auth/cambiar_password/"""
+        serializer = CambioPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            user = request.user
+            
+            # Verificar contraseña actual
+            if not user.check_password(serializer.validated_data['password_actual']):
+                return Response(
+                    {'error': 'La contraseña actual es incorrecta'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Cambiar contraseña
+            user.set_password(serializer.validated_data['nuevo_password'])
+            user.save()
+            
+            # Actualizar sesión para no cerrarla
+            update_session_auth_hash(request, user)
+            
+            return Response({'message': 'Contraseña cambiada exitosamente'})
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def verificar_token(self, request):
+        """Verificar si el token es válido - GET /api/auth/verificar_token/"""
         return Response({
-            'token': token.key,
-            'user': UsuarioSerializer(user).data
+            'valido': True,
+            'user': UsuarioPerfilSerializer(request.user).data,
+            'message': 'Token válido'
         })
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# 🔧 FUNCIÓN AUXILIAR PARA MIGRAR CARRITO
+def migrar_carrito_sesion_a_usuario(request, user):
+    """Migrar carrito de sesión anónima a usuario autenticado"""
+    session_id = request.session.session_key
+    if session_id:
+        carrito_sesion = Carrito.objects.filter(session_id=session_id).first()
+        carrito_usuario, created = Carrito.objects.get_or_create(id_usuario=user)
+        
+        if carrito_sesion and carrito_sesion != carrito_usuario:
+            # Migrar items del carrito de sesión al carrito del usuario
+            for item_sesion in carrito_sesion.items.all():
+                item_existente = carrito_usuario.items.filter(
+                    id_producto=item_sesion.id_producto
+                ).first()
+                
+                if item_existente:
+                    item_existente.cantidad += item_sesion.cantidad
+                    item_existente.save()
+                else:
+                    carrito_usuario.items.create(
+                        id_producto=item_sesion.id_producto,
+                        cantidad=item_sesion.cantidad,
+                        precio_unitario=item_sesion.precio_unitario
+                    )
+            
+            # Eliminar carrito de sesión
+            carrito_sesion.delete()    
 
 # API para productos destacados
 @api_view(['GET'])
@@ -66,7 +274,7 @@ def productos_oferta(request):
     return Response(serializer.data)
 
 class ProductoViewSet(viewsets.ModelViewSet):
-    queryset = Producto.objects.filter(activo=True)  # ← AGREGAR ESTA LÍNEA
+    queryset = Producto.objects.filter(activo=True) 
     serializer_class = ProductoSerializer
     permission_classes = [permissions.AllowAny]
 
@@ -158,6 +366,7 @@ class ProductoViewSet(viewsets.ModelViewSet):
             'productos_destacados': Producto.objects.filter(destacado=True, activo=True).count(),
             'productos_oferta': Producto.objects.filter(en_oferta=True, activo=True).count(),
         })
+    
     # 🔍 BÚSQUEDA AVANZADA
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
@@ -268,6 +477,7 @@ def productos_mas_vendidos(request):
     """
     Obtener los productos más vendidos
     """
+    
     limite = request.query_params.get('limite', 10)
     productos = Producto.objects.filter(
         activo=True, 
@@ -416,152 +626,309 @@ def vaciar_carrito(request):
     viewset = CarritoViewSet()
     return viewset.vaciar(request)
 
+#Favoritos y reseñas
 
+# FAVORITOS Y RESEÑAS
 
+class FavoritoViewSet(viewsets.ModelViewSet):
+    serializer_class = FavoritoSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-# 🔐 VISTAS DE AUTENTICACIÓN
-@csrf_exempt
-@api_view(['POST'])
-@permission_classes([permissions.AllowAny])
-def registro_usuario(request):
-    """Registro de nuevos usuarios"""
-    serializer = UsuarioRegistroSerializer(data=request.data)
-    if serializer.is_valid():
-        user = serializer.save()
-        
-        # Crear token de autenticación
-        token, created = Token.objects.get_or_create(user=user)
-        
-        # Iniciar sesión automáticamente
-        login(request, user)
-        
-        # Migrar carrito de sesión a usuario si existe
-        migrar_carrito_sesion_a_usuario(request, user)
-        
-        return Response({
-            'token': token.key,
-            'user': UsuarioPerfilSerializer(user).data,
-            'message': 'Usuario registrado exitosamente'
-        }, status=status.HTTP_201_CREATED)
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def get_queryset(self):
+        return Favorito.objects.filter(id_usuario=self.request.user)
 
-@csrf_exempt
-@api_view(['POST'])
-@permission_classes([permissions.AllowAny])
-def login_usuario(request):
-    """Inicio de sesión de usuarios"""
-    serializer = UsuarioLoginSerializer(data=request.data)
-    if serializer.is_valid():
-        user = serializer.validated_data['user']
-        
-        # Actualizar último acceso
-        user.fecha_ultimo_acceso = timezone.now()
-        user.save()
-        
-        # Crear o obtener token
-        token, created = Token.objects.get_or_create(user=user)
-        
-        # Iniciar sesión
-        login(request, user)
-        
-        # Migrar carrito de sesión a usuario si existe
-        migrar_carrito_sesion_a_usuario(request, user)
-        
-        return Response({
-            'token': token.key,
-            'user': UsuarioPerfilSerializer(user).data,
-            'message': 'Login exitoso'
-        })
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def perform_create(self, serializer):
+        # Verificar si ya existe como favorito
+        producto_id = self.request.data.get('id_producto')
+        if Favorito.objects.filter(id_usuario=self.request.user, id_producto_id=producto_id).exists():
+            raise serializers.ValidationError('Este producto ya está en tus favoritos')
 
-@csrf_exempt
-@api_view(['POST'])
-@permission_classes([permissions.IsAuthenticated])
-def logout_usuario(request):
-    """Cerrar sesión del usuario"""
-    # Eliminar token
-    Token.objects.filter(user=request.user).delete()
-    
-    # Cerrar sesión
-    logout(request)
-    
-    return Response({'message': 'Logout exitoso'})
+        serializer.save(id_usuario=self.request.user)
 
-@csrf_exempt
-@api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
-def perfil_usuario(request):
-    """Obtener perfil del usuario actual"""
-    serializer = UsuarioPerfilSerializer(request.user)
-    return Response(serializer.data)
+    @action(detail=False, methods=['get'])
+    def mis_favoritos(self, request):
+        """Obtener todos los favoritos del usuario"""
+        favoritos = self.get_queryset()
+        serializer = self.get_serializer(favoritos, many=True)
+        return Response(serializer.data)
 
-@csrf_exempt
-@api_view(['PUT'])
-@permission_classes([permissions.IsAuthenticated])
-def actualizar_perfil(request):
-    """Actualizar perfil del usuario"""
-    serializer = UsuarioUpdateSerializer(request.user, data=request.data, partial=True)
-    if serializer.is_valid():
-        serializer.save()
-        return Response({
-            'user': UsuarioPerfilSerializer(request.user).data,
-            'message': 'Perfil actualizado exitosamente'
-        })
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-@csrf_exempt
-@api_view(['POST'])
-@permission_classes([permissions.IsAuthenticated])
-def cambiar_password(request):
-    """Cambiar contraseña del usuario"""
-    serializer = CambioPasswordSerializer(data=request.data)
-    if serializer.is_valid():
-        user = request.user
+    @action(detail=False, methods=['post'])
+    def toggle_favorito(self, request):
+        """Agregar o quitar producto de favoritos"""
+        producto_id = request.data.get('id_producto')
         
-        # Verificar contraseña actual
-        if not user.check_password(serializer.validated_data['password_actual']):
+        try:
+            producto = Producto.objects.get(id_producto=producto_id, activo=True)
+        except Producto.DoesNotExist:
             return Response(
-                {'error': 'La contraseña actual es incorrecta'}, 
+                {'error': 'Producto no encontrado'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        favorito = Favorito.objects.filter(id_usuario=request.user, id_producto=producto).first()
+        
+        if favorito:
+            # Si ya existe, eliminarlo (toggle off)
+            favorito.delete()
+            return Response({
+                'message': 'Producto eliminado de favoritos',
+                'es_favorito': False
+            })
+        else:
+            # Si no existe, crearlo (toggle on)
+            Favorito.objects.create(id_usuario=request.user, id_producto=producto)
+            return Response({
+                'message': 'Producto agregado a favoritos',
+                'es_favorito': True
+            })
+
+    @action(detail=False, methods=['get'])
+    def verificar_favorito(self, request):
+        """Verificar si un producto está en favoritos"""
+        producto_id = request.query_params.get('producto_id')
+        
+        if not producto_id:
+            return Response(
+                {'error': 'Se requiere producto_id'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        es_favorito = Favorito.objects.filter(
+            id_usuario=request.user, 
+            id_producto_id=producto_id
+        ).exists()
         
-        # Cambiar contraseña
-        user.set_password(serializer.validated_data['nuevo_password'])
-        user.save()
+        return Response({'es_favorito': es_favorito})
+
+class ResenaViewSet(viewsets.ModelViewSet):
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CrearResenaSerializer
+        return ResenaSerializer
+
+    def get_queryset(self):
+        queryset = Resena.objects.filter(aprobada=True)
         
-        # Actualizar sesión para no cerrarla
-        update_session_auth_hash(request, user)
+        # Filtrar por producto si se especifica
+        producto_id = self.request.query_params.get('producto_id')
+        if producto_id:
+            queryset = queryset.filter(id_producto_id=producto_id)
         
-        return Response({'message': 'Contraseña cambiada exitosamente'})
+        return queryset
+
+    def perform_create(self, serializer):
+        # Verificar si el usuario ya reseñó este producto
+        producto_id = self.request.data.get('id_producto')
+        if Resena.objects.filter(id_usuario=self.request.user, id_producto_id=producto_id).exists():
+            # Usar la excepción correcta para que DRF devuelva 400 con detalle
+            raise serializers.ValidationError('Ya has reseñado este producto')
+
+        serializer.save(id_usuario=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        """Crear reseña y devolver mensaje + reseña en la respuesta"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        # perform_create comprobará duplicados y guardará el usuario
+        self.perform_create(serializer)
+
+        resena = getattr(serializer, 'instance', None)
+        headers = self.get_success_headers(serializer.data)
+
+        return Response(
+            {
+                'message': 'Producto reseñado exitosamente',
+                'resena': ResenaSerializer(resena).data if resena is not None else serializer.data
+            },
+            status=status.HTTP_201_CREATED,
+            headers=headers
+        )
+
+    @action(detail=False, methods=['get'])
+    def mis_resenas(self, request):
+        """Obtener todas las reseñas del usuario autenticado"""
+        if not request.user.is_authenticated:
+            return Response(
+                {'error': 'Authentication required'}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        resenas = Resena.objects.filter(id_usuario=request.user)
+        serializer = ResenaSerializer(resenas, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def aprobar_resena(self, request, pk=None):
+        """Aprobar una reseña (solo para admin/empleados)"""
+        if request.user.rol not in ['admin', 'empleado']:
+            return Response(
+                {'error': 'No tienes permisos para esta acción'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            resena = self.get_object()
+            resena.aprobada = True
+            resena.save()
+            
+            # Actualizar estadísticas del producto
+            producto = resena.id_producto
+            reseñas_aprobadas = Resena.objects.filter(id_producto=producto, aprobada=True)
+            
+            # Calcular nueva calificación promedio
+            calificacion_promedio = reseñas_aprobadas.aggregate(
+                avg_calificacion=models.Avg('calificacion')
+            )['avg_calificacion'] or 0.0
+            
+            producto.calificacion_promedio = round(calificacion_promedio, 1)
+            producto.total_resenas = reseñas_aprobadas.count()
+            producto.save()
+            
+            return Response({'message': 'Reseña aprobada exitosamente'})
+            
+        except Resena.DoesNotExist:
+            return Response(
+                {'error': 'Reseña no encontrada'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+# Vistas API para favoritos
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def obtener_favoritos(request):
+    """Obtener todos los favoritos del usuario"""
+    favoritos = Favorito.objects.filter(id_usuario=request.user)
+    serializer = FavoritoSerializer(favoritos, many=True)
+    return Response(serializer.data)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def toggle_favorito(request):
+    """Agregar o quitar producto de favoritos"""
+    producto_id = request.data.get('id_producto')
     
+    try:
+        producto = Producto.objects.get(id_producto=producto_id, activo=True)
+    except Producto.DoesNotExist:
+        return Response(
+            {'error': 'Producto no encontrado'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    favorito = Favorito.objects.filter(id_usuario=request.user, id_producto=producto).first()
+    
+    if favorito:
+        favorito.delete()
+        return Response({
+            'message': 'Producto eliminado de favoritos',
+            'es_favorito': False
+        })
+    else:
+        Favorito.objects.create(id_usuario=request.user, id_producto=producto)
+        return Response({
+            'message': 'Producto agregado a favoritos',
+            'es_favorito': True
+        })
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def verificar_favorito(request, producto_id):
+    """Verificar si un producto está en favoritos"""
+    es_favorito = Favorito.objects.filter(
+        id_usuario=request.user, 
+        id_producto_id=producto_id
+    ).exists()
+    
+    return Response({'es_favorito': es_favorito})
+
+# Vistas API para reseñas
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def obtener_resenas_producto(request, producto_id):
+    """Obtener todas las reseñas aprobadas de un producto"""
+    try:
+        producto = Producto.objects.get(id_producto=producto_id, activo=True)
+    except Producto.DoesNotExist:
+        return Response(
+            {'error': 'Producto no encontrado'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    resenas = Resena.objects.filter(id_producto=producto, aprobada=True)
+    serializer = ResenaSerializer(resenas, many=True)
+    
+    return Response({
+        'producto': producto.nombre,
+        'calificacion_promedio': producto.calificacion_promedio,
+        'total_resenas': producto.total_resenas,
+        'resenas': serializer.data
+    })
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def crear_resena(request):
+    """Crear una nueva reseña"""
+    serializer = CrearResenaSerializer(data=request.data, context={'request': request})
+
+    if serializer.is_valid():
+        # Obtener id del producto de forma segura (puede venir como instancia o como id)
+        producto_field = serializer.validated_data.get('id_producto', None)
+        if producto_field is None:
+            producto_id = request.data.get('id_producto')
+        else:
+            producto_id = getattr(producto_field, 'id_producto', producto_field)
+
+        # Verificar si el usuario ya reseñó este producto
+        if Resena.objects.filter(id_usuario=request.user, id_producto_id=producto_id).exists():
+            return Response({'error': 'Ya has reseñado este producto'}, status=status.HTTP_400_BAD_REQUEST)
+
+        resena = serializer.save()
+
+        # Si el usuario es admin/empleado, aprobar automáticamente
+        if getattr(request.user, 'rol', None) in ['admin', 'empleado']:
+            resena.aprobada = True
+            resena.save()
+
+        # Devolver mensaje y la reseña creada
+        return Response(
+            {'message': 'Producto reseñado exitosamente', 'resena': ResenaSerializer(resena).data},
+            status=status.HTTP_201_CREATED
+        )
+
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# 🔧 FUNCIÓN AUXILIAR PARA MIGRAR CARRITO
-def migrar_carrito_sesion_a_usuario(request, user):
-    """Migrar carrito de sesión anónima a usuario autenticado"""
-    session_id = request.session.session_key
-    if session_id:
-        carrito_sesion = Carrito.objects.filter(session_id=session_id).first()
-        carrito_usuario, created = Carrito.objects.get_or_create(id_usuario=user)
-        
-        if carrito_sesion and carrito_sesion != carrito_usuario:
-            # Migrar items del carrito de sesión al carrito del usuario
-            for item_sesion in carrito_sesion.items.all():
-                item_existente = carrito_usuario.items.filter(
-                    id_producto=item_sesion.id_producto
-                ).first()
-                
-                if item_existente:
-                    item_existente.cantidad += item_sesion.cantidad
-                    item_existente.save()
-                else:
-                    carrito_usuario.items.create(
-                        id_producto=item_sesion.id_producto,
-                        cantidad=item_sesion.cantidad,
-                        precio_unitario=item_sesion.precio_unitario
-                    )
-            
-            # Eliminar carrito de sesión
-            carrito_sesion.delete()    
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def mis_resenas(request):
+    """Obtener todas las reseñas del usuario"""
+    resenas = Resena.objects.filter(id_usuario=request.user)
+    serializer = ResenaSerializer(resenas, many=True)
+    return Response(serializer.data)
+
+# Productos con reseñas detalladas
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def producto_detallado(request, producto_id):
+    """Obtener producto con todas sus reseñas"""
+    try:
+        producto = Producto.objects.get(id_producto=producto_id, activo=True)
+    except Producto.DoesNotExist:
+        return Response(
+            {'error': 'Producto no encontrado'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    serializer = ProductoConResenasSerializer(producto)
+    
+    # Agregar información de favorito si el usuario está autenticado
+    data = serializer.data
+    if request.user.is_authenticated:
+        data['es_favorito'] = Favorito.objects.filter(
+            id_usuario=request.user, 
+            id_producto=producto
+        ).exists()
+    
+    return Response(data)
+
