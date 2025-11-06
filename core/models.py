@@ -21,7 +21,6 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
     nombre = models.CharField(max_length=100)
     apellido = models.CharField(max_length=100)
     email = models.EmailField(unique=True, max_length=150)
-    password = models.CharField(max_length=255)
     telefono = models.CharField(max_length=20, null=True, blank=True)
     fecha_nacimiento = models.DateField(null=True, blank=True)
     genero = models.CharField(max_length=5, choices=[('M', 'Masculino'), ('F', 'Femenino'), ('Otro', 'Otro')], null=True, blank=True)
@@ -129,9 +128,8 @@ class ImagenProducto(models.Model):
     
     def __str__(self):
         return f"Imagen de {self.id_producto.nombre}"
-    
 
-    #CARRITO DE COMPRAS
+# CARRITO DE COMPRAS
 class Carrito(models.Model):
     id_carrito = models.AutoField(primary_key=True)
     id_usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, null=True, blank=True, db_column='id_usuario')
@@ -186,34 +184,16 @@ class CarritoItem(models.Model):
             self.precio_unitario = self.id_producto.precio
         super().save(*args, **kwargs)
 
-<<<<<<< HEAD
-
-# FAVORITOS
-class Favorito(models.Model):
-    id_favorito = models.AutoField(primary_key=True)
-    usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name='favoritos', db_column='id_usuario')
-    producto = models.ForeignKey(Producto, on_delete=models.CASCADE, db_column='id_producto')
-=======
-    #Favoritos y reseñas
-
 # FAVORITOS Y RESEÑAS
 class Favorito(models.Model):
     id_favorito = models.AutoField(primary_key=True)
     id_usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, db_column='id_usuario')
     id_producto = models.ForeignKey(Producto, on_delete=models.CASCADE, db_column='id_producto')
->>>>>>> origin/master
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
         db_table = 'favoritos'
         constraints = [
-<<<<<<< HEAD
-            models.UniqueConstraint(fields=['usuario', 'producto'], name='unique_usuario_producto_favorito')
-        ]
-    
-    def __str__(self):
-        return f"{self.usuario.email} - {self.producto.nombre}"
-=======
             models.UniqueConstraint(fields=['id_usuario', 'id_producto'], name='unique_usuario_producto_favorito')
         ]
     
@@ -238,4 +218,3 @@ class Resena(models.Model):
     
     def __str__(self):
         return f"Reseña {self.calificacion}★ - {self.id_usuario.email}"
->>>>>>> origin/master
