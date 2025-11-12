@@ -2,25 +2,37 @@ from rest_framework import viewsets, permissions, status, serializers
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
-from django.contrib.auth import  login, logout, update_session_auth_hash
+from django.contrib.auth import login, logout, update_session_auth_hash
+from django.db import models
 from django.db.models import Q
-#from django.db import models
-<<<<<<< HEAD
-from .models import Producto, Categoria, Marca, Usuario, Carrito, CarritoItem, Favorito
-=======
-from .models import Producto, Categoria, Marca, Usuario, Carrito, CarritoItem,Favorito, Resena
->>>>>>> origin/master
-from .serializers import (ProductoSerializer, CategoriaSerializer, 
-                          MarcaSerializer, UsuarioSerializer, LoginSerializer, 
-                          CarritoSerializer, CarritoItemSerializer,UsuarioRegistroSerializer, 
-                          UsuarioLoginSerializer, UsuarioPerfilSerializer, UsuarioUpdateSerializer, 
-<<<<<<< HEAD
-                         CambioPasswordSerializer, FavoritoSerializer)
-import alkosto_backend.settings as settings
-=======
-                         CambioPasswordSerializer, FavoritoSerializer, ResenaSerializer, CrearResenaSerializer, 
-                         ProductoConResenasSerializer)
->>>>>>> origin/master
+from .models import (
+    Producto,
+    Categoria,
+    Marca,
+    Usuario,
+    Carrito,
+    CarritoItem,
+    Favorito,
+    Resena
+)
+from .serializers import (
+    ProductoSerializer,
+    CategoriaSerializer,
+    MarcaSerializer,
+    UsuarioSerializer,
+    LoginSerializer,
+    CarritoSerializer,
+    CarritoItemSerializer,
+    UsuarioRegistroSerializer,
+    UsuarioLoginSerializer,
+    UsuarioPerfilSerializer,
+    UsuarioUpdateSerializer,
+    CambioPasswordSerializer,
+    FavoritoSerializer,
+    ResenaSerializer,
+    CrearResenaSerializer,
+    ProductoConResenasSerializer
+)
 from django.utils import timezone
 
 # Nota: la implementación completa de `ProductoViewSet` aparece más abajo
@@ -238,33 +250,26 @@ class AutenticacionViewSet(viewsets.ViewSet):
             'message': 'Token válido'
         })
 
-# 🔧 FUNCIÓN AUXILIAR PARA MIGRAR CARRITO
 def migrar_carrito_sesion_a_usuario(request, user):
-    """Migrar carrito de sesión anónima a usuario autenticado"""
+    """Migrar items del carrito asociado a la sesión anónima al carrito del usuario autenticado."""
     session_id = request.session.session_key
-    if session_id:
-        carrito_sesion = Carrito.objects.filter(session_id=session_id).first()
-        carrito_usuario, created = Carrito.objects.get_or_create(id_usuario=user)
-        
-        if carrito_sesion and carrito_sesion != carrito_usuario:
-            # Migrar items del carrito de sesión al carrito del usuario
-            for item_sesion in carrito_sesion.items.all():
-                item_existente = carrito_usuario.items.filter(
-                    id_producto=item_sesion.id_producto
-                ).first()
-                
-                if item_existente:
-                    item_existente.cantidad += item_sesion.cantidad
-                    item_existente.save()
-                else:
-                    carrito_usuario.items.create(
-                        id_producto=item_sesion.id_producto,
-                        cantidad=item_sesion.cantidad,
-                        precio_unitario=item_sesion.precio_unitario
-                    )
-            
-            # Eliminar carrito de sesión
-            carrito_sesion.delete()    
+    if not session_id:
+        return
+    carrito_sesion = Carrito.objects.filter(session_id=session_id).first()
+    carrito_usuario, _ = Carrito.objects.get_or_create(id_usuario=user)
+    if carrito_sesion and carrito_sesion != carrito_usuario:
+        for item_sesion in carrito_sesion.items.all():
+            existente = carrito_usuario.items.filter(id_producto=item_sesion.id_producto).first()
+            if existente:
+                existente.cantidad += item_sesion.cantidad
+                existente.save()
+            else:
+                carrito_usuario.items.create(
+                    id_producto=item_sesion.id_producto,
+                    cantidad=item_sesion.cantidad,
+                    precio_unitario=item_sesion.precio_unitario
+                )
+        carrito_sesion.delete()
 
 # API para productos destacados
 @api_view(['GET'])
@@ -904,90 +909,6 @@ def crear_resena(request):
 
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-<<<<<<< HEAD
-# 🔧 FUNCIÓN AUXILIAR PARA MIGRAR CARRITO
-def migrar_carrito_sesion_a_usuario(request, user):
-    """Migrar carrito de sesión anónima a usuario autenticado"""
-    session_id = request.session.session_key
-    if session_id:
-        carrito_sesion = Carrito.objects.filter(session_id=session_id).first()
-        carrito_usuario, created = Carrito.objects.get_or_create(id_usuario=user)
-        
-        if carrito_sesion and carrito_sesion != carrito_usuario:
-            # Migrar items del carrito de sesión al carrito del usuario
-            for item_sesion in carrito_sesion.items.all():
-                item_existente = carrito_usuario.items.filter(
-                    id_producto=item_sesion.id_producto
-                ).first()
-                
-                if item_existente:
-                    item_existente.cantidad += item_sesion.cantidad
-                    item_existente.save()
-                else:
-                    carrito_usuario.items.create(
-                        id_producto=item_sesion.id_producto,
-                        cantidad=item_sesion.cantidad,
-                        precio_unitario=item_sesion.precio_unitario
-                    )
-            
-            # Eliminar carrito de sesión
-            carrito_sesion.delete()
-
-
-# 🔐 VISTAS DE FAVORITOS
-class FavoritoViewSet(viewsets.ModelViewSet):
-    serializer_class = FavoritoSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_queryset(self):
-        return Favorito.objects.filter(usuario=self.request.user).select_related('producto')
-    
-    def create(self, request, *args, **kwargs):
-        producto_id = request.data.get('producto')
-        
-        try:
-            producto = Producto.objects.get(id_producto=producto_id)
-        except Producto.DoesNotExist:
-            return Response(
-                {'error': 'Producto no encontrado'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Verificar si ya existe
-        favorito_existente = Favorito.objects.filter(
-            usuario=request.user,
-            producto=producto
-        ).first()
-        
-        if favorito_existente:
-            return Response(
-                {'message': 'El producto ya está en favoritos'},
-                status=status.HTTP_200_OK
-            )
-        
-        # Crear favorito
-        favorito = Favorito.objects.create(
-            usuario=request.user,
-            producto=producto
-        )
-        
-        serializer = self.get_serializer(favorito)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    
-    def destroy(self, request, *args, **kwargs):
-        try:
-            favorito = self.get_queryset().get(pk=kwargs['pk'])
-            favorito.delete()
-            return Response(
-                {'message': 'Favorito eliminado'},
-                status=status.HTTP_204_NO_CONTENT
-            )
-        except Favorito.DoesNotExist:
-            return Response(
-                {'error': 'Favorito no encontrado'},
-                status=status.HTTP_404_NOT_FOUND
-            )    
-=======
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def mis_resenas(request):
@@ -1021,4 +942,3 @@ def producto_detallado(request, producto_id):
     
     return Response(data)
 
->>>>>>> origin/master
