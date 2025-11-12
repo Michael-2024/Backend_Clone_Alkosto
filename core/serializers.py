@@ -1,9 +1,5 @@
 from rest_framework import serializers
-<<<<<<< HEAD
-from .models import Producto, Categoria, Marca, ImagenProducto, Usuario, Carrito, CarritoItem, Favorito
-=======
 from .models import Producto, Categoria, Marca, ImagenProducto, Usuario, Carrito, CarritoItem, Favorito, Resena
->>>>>>> origin/master
 from django.contrib.auth import authenticate
 
 class CategoriaSerializer(serializers.ModelSerializer):
@@ -115,19 +111,6 @@ class CambioPasswordSerializer(serializers.Serializer):
         if data['nuevo_password'] != data['confirmar_password']:
             raise serializers.ValidationError("Los nuevos passwords no coinciden")
         return data
-<<<<<<< HEAD
-
-
-# FAVORITOS
-class FavoritoSerializer(serializers.ModelSerializer):
-    producto = ProductoSerializer(read_only=True)
-    producto_id = serializers.IntegerField(write_only=True, source='producto.id_producto')
-    
-    class Meta:
-        model = Favorito
-        fields = ['id_favorito', 'producto', 'producto_id', 'created_at']
-        read_only_fields = ['id_favorito', 'created_at']
-=======
         
 
 class ImagenProductoSerializer(serializers.ModelSerializer):
@@ -145,7 +128,7 @@ class ImagenProductoSerializer(serializers.ModelSerializer):
 class ProductoSerializer(serializers.ModelSerializer):
     categoria_nombre = serializers.CharField(source='id_categoria.nombre', read_only=True)
     marca_nombre = serializers.CharField(source='id_marca.nombre', read_only=True)
-    imagenes = ImagenProductoSerializer(many=True, read_only=True)
+    imagenes = ImagenProductoSerializer(source='imagenproducto_set', many=True, read_only=True)
     # Campos para aceptar uno o varios links de imagen al crear/actualizar
     imagen_url = serializers.CharField(write_only=True, required=False, allow_blank=True)
     # Se usa CharField para aceptar tanto JSON (lista) como CSV en formularios HTML
@@ -242,21 +225,15 @@ class ProductoSerializer(serializers.ModelSerializer):
 #CARRITO DE COMPRAS
 
 class CarritoItemSerializer(serializers.ModelSerializer):
-    producto_nombre = serializers.CharField(source='id_producto.nombre', read_only=True)
-    producto_imagen = serializers.SerializerMethodField()
-    producto_stock = serializers.IntegerField(source='id_producto.stock', read_only=True)
+    producto = ProductoSerializer(source='id_producto', read_only=True)
     subtotal = serializers.SerializerMethodField()
     
     class Meta:
         model = CarritoItem
         fields = [
-            'id_item', 'id_producto', 'producto_nombre', 'producto_imagen',
-            'producto_stock', 'cantidad', 'precio_unitario', 'subtotal'
+            'id_item', 'id_producto', 'producto',
+            'cantidad', 'precio_unitario', 'subtotal'
         ]
-    
-    def get_producto_imagen(self, obj):
-        imagen_principal = obj.id_producto.imagenproducto_set.filter(es_principal=True).first()
-        return imagen_principal.url_imagen if imagen_principal else None
     
     def get_subtotal(self, obj):
         return obj.subtotal
@@ -322,8 +299,8 @@ class CrearResenaSerializer(serializers.ModelSerializer):
 class ProductoConResenasSerializer(serializers.ModelSerializer):
     categoria_nombre = serializers.CharField(source='id_categoria.nombre', read_only=True)
     marca_nombre = serializers.CharField(source='id_marca.nombre', read_only=True)
-    imagenes = ImagenProductoSerializer(many=True, read_only=True)
-    resenas = ResenaSerializer(many=True, read_only=True)
+    imagenes = ImagenProductoSerializer(source='imagenproducto_set', many=True, read_only=True)
+    resenas = ResenaSerializer(source='resena_set', many=True, read_only=True)
     
     class Meta:
         model = Producto
@@ -334,4 +311,3 @@ class ProductoConResenasSerializer(serializers.ModelSerializer):
             'activo', 'destacado', 'en_oferta', 'calificacion_promedio',
             'total_resenas', 'imagenes', 'resenas'
         ]
->>>>>>> origin/master
